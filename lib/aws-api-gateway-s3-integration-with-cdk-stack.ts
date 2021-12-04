@@ -7,11 +7,11 @@ export class AwsApiGatewayS3IntegrationWithCdkStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const assetsBucket = this.createAssetsBucket();
+    const assetsBucket = this.createBucketForAssets();
 
     const apiGateway = this.createAPIGateway();
 
-    const executeRole = this.createExecutionRole();
+    const executeRole = this.createExecutionRole(assetsBucket);
     assetsBucket.grantReadWrite(executeRole);
 
     const s3Integration = this.createS3Integration(assetsBucket, executeRole);
@@ -19,33 +19,38 @@ export class AwsApiGatewayS3IntegrationWithCdkStack extends cdk.Stack {
     this.addAssetsEndpoint(apiGateway, s3Integration);
   }
 
-  private createAssetsBucket() {
-    return new S3.Bucket(this, "assets");
+  private createBucketForAssets() {
+    return new S3.Bucket(this, "static-assets-bucket", {
+      bucketName: "s3-integration-static-assets",
+    });
   }
 
   private createAPIGateway() {
     return new ApiGateway.RestApi(this, "assets-api", {
-      restApiName: "Assets provider",
+      restApiName: "Static assets provider",
       description: "Serves assets from the S3 bucket.",
+      binaryMediaTypes: ["*/*"],
+      minimumCompressionSize: 0,
     });
   }
 
-  private createExecutionRole() {
+  private createExecutionRole(bucket: S3.IBucket) {
     const executeRole = new Iam.Role(this, "api-gateway-s3-assume-tole", {
       assumedBy: new Iam.ServicePrincipal("apigateway.amazonaws.com"),
+      roleName: "API-Gateway-S3-Integration-Role",
     });
 
     executeRole.addToPolicy(
       new Iam.PolicyStatement({
-        resources: ["*"],
-        actions: ["s3:Get*"],
-      }),
+        resources: [bucket.bucketArn],
+        actions: ["s3:Get"],
+      })
     );
 
     return executeRole;
   }
 
-  private createS3Integration(assetsBucket: S3.Bucket, executeRole: Iam.Role) {
+  private createS3Integration(assetsBucket: S3.IBucket, executeRole: Iam.Role) {
     return new ApiGateway.AwsIntegration({
       service: "s3",
       integrationHttpMethod: "GET",
@@ -71,7 +76,7 @@ export class AwsApiGatewayS3IntegrationWithCdkStack extends cdk.Stack {
 
   private addAssetsEndpoint(
     apiGateway: ApiGateway.RestApi,
-    s3Integration: ApiGateway.AwsIntegration,
+    s3Integration: ApiGateway.AwsIntegration
   ) {
     apiGateway.root
       .addResource("assets")
